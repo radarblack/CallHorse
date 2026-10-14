@@ -9,14 +9,41 @@ on:
 permissions:
   contents: read
 
+env:
+  HOOKSAMPLE_REPO: Yazed0071/MGSV_HookSample
+  HOOKSAMPLE_REF: 82c6b95681c054d11a8882f0d1b596ee72d53dca
+
 jobs:
   build:
     runs-on: windows-latest
     timeout-minutes: 20
 
     steps:
-      - name: Checkout
+      - name: Checkout this repo
         uses: actions/checkout@v4
+        with:
+          path: overlay
+
+      - name: Checkout HookSample base
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.HOOKSAMPLE_REPO }}
+          ref: ${{ env.HOOKSAMPLE_REF }}
+          path: base
+
+      - name: Apply buddy whistle changes
+        shell: pwsh
+        run: |
+          $map = @(
+            @{ From = "overlay\Buddywhistle.cpp";    To = "base\src\BuddyWhistle.cpp" },
+            @{ From = "overlay\Buddwhistle.h";       To = "base\src\BuddyWhistle.h" },
+            @{ From = "overlay\Setluafunctions.cpp"; To = "base\src\SetLuaFunctions.cpp" },
+            @{ From = "overlay\Hooksample.vcxproj";  To = "base\HookSample.vcxproj" }
+          )
+          foreach ($item in $map) {
+            if (-not (Test-Path $item.From)) { throw "Missing file in this repo: $($item.From)" }
+            Copy-Item $item.From $item.To -Force
+          }
 
       - name: Locate MSBuild
         id: msbuild
@@ -29,6 +56,7 @@ jobs:
 
       - name: Build Release x64
         shell: pwsh
+        working-directory: base
         run: |
           & "${{ steps.msbuild.outputs.path }}" HookSample.sln /m /nologo /verbosity:minimal /p:Configuration=Release /p:Platform=x64
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -36,11 +64,12 @@ jobs:
       - name: Stage files
         shell: pwsh
         run: |
-          $dll = "x64\Release\HookSample.dll"
+          $dll = "base\x64\Release\HookSample.dll"
           if (-not (Test-Path $dll)) { throw "$dll was not produced" }
           New-Item -ItemType Directory -Force -Path dist\lua | Out-Null
           Copy-Item $dll dist\
-          Copy-Item lua\*.lua dist\lua\
+          Copy-Item base\lua\*.lua dist\lua\
+          Copy-Item overlay\luacompanion\*.lua dist\lua\
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
