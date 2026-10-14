@@ -1,0 +1,50 @@
+name: Build HookSample DLL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Locate MSBuild
+        id: msbuild
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $path = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find "MSBuild\**\Bin\MSBuild.exe" | Select-Object -First 1
+          if (-not $path) { throw "MSBuild.exe not found" }
+          "path=$path" >> $env:GITHUB_OUTPUT
+
+      - name: Build Release x64
+        shell: pwsh
+        run: |
+          & "${{ steps.msbuild.outputs.path }}" HookSample.sln /m /nologo /verbosity:minimal /p:Configuration=Release /p:Platform=x64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Stage files
+        shell: pwsh
+        run: |
+          $dll = "x64\Release\HookSample.dll"
+          if (-not (Test-Path $dll)) { throw "$dll was not produced" }
+          New-Item -ItemType Directory -Force -Path dist\lua | Out-Null
+          Copy-Item $dll dist\
+          Copy-Item lua\*.lua dist\lua\
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HookSample-x64-Release
+          path: dist
+          if-no-files-found: error
