@@ -1,6 +1,11 @@
 local this = {}
 
 this.name = "WhistleHorse"
+this.native = nil
+
+local DLL_NAME = "CallHorse.dll"
+local ENTRY_POINT = "luaopen_CallHorse"
+local LIBRARY_NAME = "CallHorseNative"
 
 local wasDown = false
 
@@ -9,23 +14,50 @@ local function log(message)
   TppUiCommand.AnnounceLogView("Whistle: " .. message)
 end
 
-function this.PlayerPose()
-  local position = Vector3(vars.playerPosX, vars.playerPosY, vars.playerPosZ)
-  return position, math.rad(vars.playerRotY)
+local function candidatePaths()
+  local paths = {}
+  if InfCore ~= nil and InfCore.gamePath ~= nil then
+    paths[#paths + 1] = InfCore.gamePath .. "plugins/" .. DLL_NAME
+  end
+  paths[#paths + 1] = "plugins/" .. DLL_NAME
+  return paths
 end
 
-function this.NativeAvailable()
-  if HookSample == nil or HookSample.IsBuddyWhistleAvailable == nil then
-    return false
+function this.LoadNative()
+  if this.native ~= nil then
+    return true
   end
 
-  local ok, available = pcall(HookSample.IsBuddyWhistleAvailable)
-  return ok and available == true
+  for _, path in ipairs(candidatePaths()) do
+    local entry, loadError = package.loadlib(path, ENTRY_POINT)
+    if entry ~= nil then
+      local ok, library = pcall(entry)
+      if not ok then
+        InfCore.Log("WhistleHorse: entry point failed for " .. path .. ": " .. tostring(library))
+      else
+        if type(library) ~= "table" then
+          library = rawget(_G, LIBRARY_NAME)
+        end
+
+        if type(library) == "table" and library.IsAvailable ~= nil and library.IsAvailable() then
+          this.native = library
+          InfCore.Log("WhistleHorse: native library ready from " .. path)
+          return true
+        end
+
+        InfCore.Log("WhistleHorse: native library unavailable (unsupported game build?) from " .. path)
+      end
+    else
+      InfCore.Log("WhistleHorse: could not load " .. path .. ": " .. tostring(loadError))
+    end
+  end
+
+  return false
 end
 
 function this.WhistleNative(buddyType, rotationRadians)
   local ok, accepted = pcall(
-    HookSample.WhistleBuddy,
+    this.native.Whistle,
     buddyType,
     vars.playerPosX,
     vars.playerPosY,
@@ -48,12 +80,14 @@ function this.WhistleNative(buddyType, rotationRadians)
   return accepted == true
 end
 
-function this.WhistleLua(buddyType, position, rotationRadians)
+function this.WhistleLua(buddyType, rotationRadians)
   local controller = TppBuddy2BlockController
   if controller == nil then
     log("CONTROLLER MISSING")
     return false
   end
+
+  local position = Vector3(vars.playerPosX, vars.playerPosY, vars.playerPosZ)
 
   local okPosition, positionError = pcall(controller.SetCallPosition, position, rotationRadians)
   if not okPosition then
@@ -83,13 +117,13 @@ function this.Whistle()
     return false
   end
 
-  local position, rotationRadians = this.PlayerPose()
+  local rotationRadians = math.rad(vars.playerRotY)
 
-  if this.NativeAvailable() then
+  if this.LoadNative() then
     return this.WhistleNative(buddyType, rotationRadians)
   end
 
-  return this.WhistleLua(buddyType, position, rotationRadians)
+  return this.WhistleLua(buddyType, rotationRadians)
 end
 
 function this.Update()
