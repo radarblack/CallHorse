@@ -1,8 +1,7 @@
 #pragma once
 
-extern "C" {
-#include "lua.h"
+namespace buddy
+{
+    bool Available();
+    bool Whistle(int buddyType, float x, float y, float z, float rotationRadians, bool force);
 }
-
-int __cdecl l_WhistleBuddy(lua_State* L);
-int __cdecl l_IsBuddyWhistleAvailable(lua_State* L);
