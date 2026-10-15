@@ -1,17 +1,14 @@
-name: Build HookSample DLL
+name: Build CallHorse
 
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
-
-env:
-  HOOKSAMPLE_REPO: Yazed0071/MGSV_HookSample
-  HOOKSAMPLE_REF: 82c6b95681c054d11a8882f0d1b596ee72d53dca
 
 jobs:
   build:
@@ -19,31 +16,8 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - name: Checkout this repo
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          path: overlay
-
-      - name: Checkout HookSample base
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.HOOKSAMPLE_REPO }}
-          ref: ${{ env.HOOKSAMPLE_REF }}
-          path: base
-
-      - name: Apply buddy whistle changes
-        shell: pwsh
-        run: |
-          $map = @(
-            @{ From = "overlay\Buddywhistle.cpp";    To = "base\src\BuddyWhistle.cpp" },
-            @{ From = "overlay\Buddwhistle.h";       To = "base\src\BuddyWhistle.h" },
-            @{ From = "overlay\Setluafunctions.cpp"; To = "base\src\SetLuaFunctions.cpp" },
-            @{ From = "overlay\Hooksample.vcxproj";  To = "base\HookSample.vcxproj" }
-          )
-          foreach ($item in $map) {
-            if (-not (Test-Path $item.From)) { throw "Missing file in this repo: $($item.From)" }
-            Copy-Item $item.From $item.To -Force
-          }
 
       - name: Locate MSBuild
         id: msbuild
@@ -56,24 +30,48 @@ jobs:
 
       - name: Build Release x64
         shell: pwsh
-        working-directory: base
         run: |
-          & "${{ steps.msbuild.outputs.path }}" HookSample.sln /m /nologo /verbosity:minimal /p:Configuration=Release /p:Platform=x64
+          & "${{ steps.msbuild.outputs.path }}" CallHorse.sln /m /nologo /verbosity:minimal /p:Configuration=Release /p:Platform=x64
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Stage files
         shell: pwsh
         run: |
-          $dll = "base\x64\Release\HookSample.dll"
+          $dll = "build\x64\Release\CallHorse.dll"
           if (-not (Test-Path $dll)) { throw "$dll was not produced" }
-          New-Item -ItemType Directory -Force -Path dist\lua | Out-Null
-          Copy-Item $dll dist\
-          Copy-Item base\lua\*.lua dist\lua\
-          Copy-Item overlay\luacompanion\*.lua dist\lua\
+          New-Item -ItemType Directory -Force -Path dist\plugins, dist\lua | Out-Null
+          Copy-Item $dll dist\plugins\
+          Copy-Item lua\WhistleHorse.lua dist\lua\
+          Copy-Item README.md, LICENSE dist\
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: HookSample-x64-Release
+          name: CallHorse
           path: dist
           if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: CallHorse
+          path: dist
+
+      - name: Create release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          $zip = "CallHorse-$env:TAG.zip"
+          Compress-Archive -Path dist\* -DestinationPath $zip
+          gh release create $env:TAG $zip --repo $env:REPO --generate-notes
