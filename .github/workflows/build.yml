@@ -38,7 +38,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist\plugins, dist\lua | Out-Null
           Copy-Item $dll dist\plugins\
           Copy-Item lua\WhistleHorse.lua dist\lua\
-          Copy-Item README.md, LICENSE dist\
+          Copy-Item LICENSE dist\
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
