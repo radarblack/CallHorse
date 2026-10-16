@@ -45,6 +45,62 @@ namespace
         return 1;
     }
 
+    bool InRange(double value)
+    {
+        return value >= 0.0 && value <= 255.0;
+    }
+
+    int GetHorseCommandStateBinding(void* L)
+    {
+        const game::LuaApi& lua = game::Lua();
+
+        std::uint8_t state[4] = {};
+        if (!buddy::GetHorseCommandState(state))
+        {
+            lua.pushboolean(L, 0);
+            return 1;
+        }
+
+        for (int index = 0; index < 4; ++index)
+            lua.pushnumber(L, static_cast<double>(state[index]));
+
+        return 4;
+    }
+
+    int SetHorseCommandStateBinding(void* L)
+    {
+        const game::LuaApi& lua = game::Lua();
+
+        double values[4] = {};
+        for (int index = 0; index < 4; ++index)
+        {
+            if (!lua.isnumber(L, index + 1))
+            {
+                lua.pushboolean(L, 0);
+                return 1;
+            }
+
+            values[index] = lua.tonumber(L, index + 1);
+            if (!InRange(values[index]))
+            {
+                lua.pushboolean(L, 0);
+                return 1;
+            }
+        }
+
+        const bool trigger = lua.type(L, 5) <= kLuaTypeNil || lua.toboolean(L, 5) != 0;
+
+        const bool done = buddy::SetHorseCommandState(
+            static_cast<int>(values[0]),
+            static_cast<int>(values[1]),
+            static_cast<int>(values[2]),
+            static_cast<int>(values[3]),
+            trigger);
+
+        lua.pushboolean(L, done ? 1 : 0);
+        return 1;
+    }
+
     int IsAvailableBinding(void* L)
     {
         game::Lua().pushboolean(L, buddy::Available() ? 1 : 0);
@@ -55,6 +111,8 @@ namespace
     {
         { "Whistle",     WhistleBinding },
         { "IsAvailable", IsAvailableBinding },
+        { "GetHorseCommandState", GetHorseCommandStateBinding },
+        { "SetHorseCommandState", SetHorseCommandStateBinding },
         { nullptr,       nullptr }
     };
 }
