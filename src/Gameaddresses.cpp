@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 
 #include "GameAddresses.h"
@@ -22,6 +23,9 @@ namespace
     constexpr std::uintptr_t kSetCallPoint     = 0x140A47D20ull;
     constexpr std::uintptr_t kCallWrapper      = 0x140A487B0ull;
     constexpr std::uintptr_t kBuddyManagerSlot = 0x142C28930ull;
+    constexpr std::uintptr_t kLuaPushNumber    = 0x141A11950ull;
+    constexpr std::uintptr_t kPlayerState      = 0x1409AA930ull;
+    constexpr std::uintptr_t kHorseCommand     = 0x140A4ED70ull;
 
     constexpr std::uint8_t kLuaIsNumberBytes[]     = { 0x48, 0x83, 0xEC, 0x38, 0xE8, 0x87, 0x22, 0x00, 0x00, 0x83, 0x78, 0x08, 0x03, 0x74, 0x17, 0x48 };
     constexpr std::uint8_t kLuaToNumberBytes[]     = { 0x48, 0x83, 0xEC, 0x38, 0xE8, 0xA7, 0x14, 0x00, 0x00, 0x83, 0x78, 0x08, 0x03, 0x74, 0x1A, 0x48 };
@@ -31,6 +35,10 @@ namespace
     constexpr std::uint8_t kRegisterLibraryBytes[] = { 0x40, 0x57, 0x48, 0x83, 0xEC, 0x40, 0x48, 0xC7, 0x44, 0x24, 0x20, 0xFE, 0xFF, 0xFF, 0xFF, 0x48 };
     constexpr std::uint8_t kSetCallPointBytes[]    = { 0x48, 0x8B, 0x41, 0x10, 0x0F, 0x28, 0x02, 0x0F, 0x29, 0x80, 0xB0, 0x00, 0x00, 0x00, 0xF3, 0x0F };
     constexpr std::uint8_t kCallWrapperBytes[]     = { 0x48, 0x8B, 0x49, 0x10, 0x45, 0x0F, 0xB6, 0xC8, 0x41, 0xB0, 0x03, 0x45, 0x84, 0xC9, 0x74, 0x18 };
+
+    constexpr std::uint8_t kLuaPushNumberBytes[]   = { 0x48, 0x8B, 0x41, 0x10, 0xF2, 0x0F, 0x11, 0x08, 0xC7, 0x40, 0x08, 0x03, 0x00, 0x00, 0x00, 0x48 };
+    constexpr std::uint8_t kPlayerStateBytes[]     = { 0x48, 0x8B, 0x05, 0xE9, 0xBF, 0x26, 0x02, 0xC3 };
+    constexpr std::uint8_t kHorseCommandBytes[]    = { 0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x6C, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18, 0x48 };
 
     struct Target
     {
@@ -50,6 +58,9 @@ namespace
         { "registerLibrary", kRegisterLibrary, kRegisterLibraryBytes, sizeof(kRegisterLibraryBytes) },
         { "setCallPoint",   kSetCallPoint,    kSetCallPointBytes,    sizeof(kSetCallPointBytes) },
         { "callWrapper",    kCallWrapper,     kCallWrapperBytes,     sizeof(kCallWrapperBytes) },
+        { "lua_pushnumber", kLuaPushNumber,   kLuaPushNumberBytes,   sizeof(kLuaPushNumberBytes) },
+        { "playerState",    kPlayerState,     kPlayerStateBytes,     sizeof(kPlayerStateBytes) },
+        { "horseCommand",   kHorseCommand,    kHorseCommandBytes,    sizeof(kHorseCommandBytes) },
     };
 
     game::LuaApi   g_lua;
@@ -96,7 +107,13 @@ namespace
 
         if (std::memcmp(address, target.bytes, target.length) != 0)
         {
-            Log("%s: signature mismatch at %p", target.name, address);
+            char actual[3 * 16 + 1] = {};
+            const std::uint8_t* found = static_cast<const std::uint8_t*>(address);
+            const std::size_t count = target.length < 16 ? target.length : 16;
+            for (std::size_t i = 0; i < count; ++i)
+                std::snprintf(actual + i * 3, 4, "%02X ", found[i]);
+
+            Log("%s: signature mismatch at %p, found %s", target.name, address, actual);
             return false;
         }
 
@@ -140,11 +157,14 @@ namespace game
         g_lua.toboolean       = Function<decltype(g_lua.toboolean)>(kLuaToBoolean);
         g_lua.pushboolean     = Function<decltype(g_lua.pushboolean)>(kLuaPushBoolean);
         g_lua.type            = Function<decltype(g_lua.type)>(kLuaType);
+        g_lua.pushnumber      = Function<decltype(g_lua.pushnumber)>(kLuaPushNumber);
         g_lua.registerLibrary = Function<decltype(g_lua.registerLibrary)>(kRegisterLibrary);
 
         g_buddy.setCallPoint = Function<decltype(g_buddy.setCallPoint)>(kSetCallPoint);
         g_buddy.callWrapper  = Function<decltype(g_buddy.callWrapper)>(kCallWrapper);
         g_buddy.managerSlot  = slot;
+        g_buddy.playerState  = Function<decltype(g_buddy.playerState)>(kPlayerState);
+        g_buddy.horseCommand = Function<decltype(g_buddy.horseCommand)>(kHorseCommand);
 
         g_ok = true;
         Log("game functions resolved, exe base %p", reinterpret_cast<void*>(ExeBase()));
