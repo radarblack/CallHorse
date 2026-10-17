@@ -5,6 +5,8 @@ this.native = nil
 this.nativeStatus = "not loaded yet"
 this.presetCommand = nil
 this.learnedCommand = nil
+this.useSpy = true
+this.spyActive = false
 
 local DLL_NAME = "CallHorse.dll"
 local ENTRY_POINT = "luaopen_CallHorse"
@@ -12,6 +14,7 @@ local LIBRARY_NAME = "CallHorseNative"
 
 local wasDown = false
 local lastState = nil
+local lastSequence = 0
 local learning = false
 local loadAttempted = false
 local statusShown = false
@@ -89,6 +92,7 @@ function this.LoadNative()
           this.native = library
           this.nativeStatus = "ready"
           logQuiet("native library ready from " .. path)
+          this.StartSpy()
           return true
         end
       end
@@ -97,6 +101,48 @@ function this.LoadNative()
 
   this.nativeStatus = status
   return false
+end
+
+function this.StartSpy()
+  this.spyActive = false
+
+  if not this.useSpy or this.native.EnableSpy == nil or this.native.GetLastGameHorseCommand == nil then
+    logQuiet("spy not used")
+    return
+  end
+
+  local ok, enabled = pcall(this.native.EnableSpy, true)
+  if ok and enabled == true then
+    this.spyActive = true
+    logQuiet("spy active: game horse commands are being captured")
+  else
+    logQuiet("spy could not start (" .. tostring(enabled) .. "), falling back to state polling")
+  end
+end
+
+function this.PollGameCommand()
+  local ok, sequence, e61, e62, e63, e64 = pcall(this.native.GetLastGameHorseCommand)
+  if not ok or type(sequence) ~= "number" then
+    return nil
+  end
+
+  return sequence, { e61, e62, e63, e64 }
+end
+
+function this.TrackGameCommand()
+  local sequence, command = this.PollGameCommand()
+  if sequence == nil or sequence == lastSequence then
+    return
+  end
+
+  lastSequence = sequence
+  logQuiet("game horse command #" .. sequence .. " " .. describe(command))
+
+  if learning then
+    learning = false
+    this.learnedCommand = command
+    log("WHISTLE LEARNED " .. describe(command) .. " - PRESS LIGHT_SWITCH TO USE IT")
+  end
 end
 
 function this.ReadState()
@@ -161,7 +207,7 @@ function this.TrackState()
   logQuiet("horse command state " .. describe(lastState) .. " -> " .. describe(state))
   lastState = state
 
-  if learning and not isZero(state) then
+  if learning and not this.spyActive and not isZero(state) then
     learning = false
     this.learnedCommand = state
     log("WHISTLE LEARNED " .. describe(state) .. " - PRESS LIGHT_SWITCH TO USE IT")
@@ -182,6 +228,12 @@ function this.OnPress()
   if command == nil then
     learning = true
     lastState = this.ReadState()
+    if this.spyActive then
+      local sequence = this.PollGameCommand()
+      if sequence ~= nil then
+        lastSequence = sequence
+      end
+    end
     log("LEARNING: HOLD Q, SELECT WHISTLE ONCE IN THE RADIAL MENU")
     return false
   end
@@ -201,6 +253,13 @@ function this.Update()
   end
 
   if this.native ~= nil then
+    if this.spyActive then
+      local okGame, gameError = pcall(this.TrackGameCommand)
+      if not okGame then
+        logQuiet("TrackGameCommand error: " .. tostring(gameError))
+      end
+    end
+
     local ok, trackError = pcall(this.TrackState)
     if not ok then
       logQuiet("TrackState error: " .. tostring(trackError))
