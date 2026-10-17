@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 namespace game
@@ -25,7 +26,16 @@ namespace game
                                      std::uint8_t e64, std::uint8_t trigger)                               = nullptr;
     };
 
+    struct SpyApi
+    {
+        void* executor = nullptr;
+        void* gate     = nullptr;
+    };
+
     bool Resolve();
+    bool ResolveSpy();
+    bool IsReadable(const void* address, std::size_t length);
     const LuaApi& Lua();
     const BuddyApi& Buddy();
+    const SpyApi& Spy();
 }
