@@ -26,6 +26,8 @@ namespace
     constexpr std::uintptr_t kLuaPushNumber    = 0x141A11950ull;
     constexpr std::uintptr_t kPlayerState      = 0x1409AA930ull;
     constexpr std::uintptr_t kHorseCommand     = 0x140A4ED70ull;
+    constexpr std::uintptr_t kExecutor         = 0x140A4E340ull;
+    constexpr std::uintptr_t kGate             = 0x140A44740ull;
 
     constexpr std::uint8_t kLuaIsNumberBytes[]     = { 0x48, 0x83, 0xEC, 0x38, 0xE8, 0x87, 0x22, 0x00, 0x00, 0x83, 0x78, 0x08, 0x03, 0x74, 0x17, 0x48 };
     constexpr std::uint8_t kLuaToNumberBytes[]     = { 0x48, 0x83, 0xEC, 0x38, 0xE8, 0xA7, 0x14, 0x00, 0x00, 0x83, 0x78, 0x08, 0x03, 0x74, 0x1A, 0x48 };
@@ -39,6 +41,9 @@ namespace
     constexpr std::uint8_t kLuaPushNumberBytes[]   = { 0x48, 0x8B, 0x41, 0x10, 0xF2, 0x0F, 0x11, 0x08, 0xC7, 0x40, 0x08, 0x03, 0x00, 0x00, 0x00, 0x48 };
     constexpr std::uint8_t kPlayerStateBytes[]     = { 0x48, 0x8B, 0x05, 0xE9, 0xBF, 0x26, 0x02, 0xC3 };
     constexpr std::uint8_t kHorseCommandBytes[]    = { 0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x6C, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18, 0x48 };
+
+    constexpr std::uint8_t kExecutorBytes[]        = { 0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x30, 0x48 };
+    constexpr std::uint8_t kGateBytes[]            = { 0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x6C, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18, 0x48 };
 
     struct Target
     {
@@ -63,10 +68,16 @@ namespace
         { "horseCommand",   kHorseCommand,    kHorseCommandBytes,    sizeof(kHorseCommandBytes) },
     };
 
+    constexpr Target kExecutorTarget = { "executor", kExecutor, kExecutorBytes, sizeof(kExecutorBytes) };
+    constexpr Target kGateTarget     = { "gate",     kGate,     kGateBytes,     sizeof(kGateBytes) };
+
     game::LuaApi   g_lua;
     game::BuddyApi g_buddy;
-    bool           g_resolved = false;
-    bool           g_ok       = false;
+    game::SpyApi   g_spy;
+    bool           g_resolved    = false;
+    bool           g_ok          = false;
+    bool           g_spyResolved = false;
+    bool           g_spyOk       = false;
 
     std::uintptr_t ExeBase()
     {
@@ -171,6 +182,33 @@ namespace game
         return true;
     }
 
+    bool IsReadable(const void* address, std::size_t length)
+    {
+        return ::IsReadable(address, length);
+    }
+
+    bool ResolveSpy()
+    {
+        if (g_spyResolved)
+            return g_spyOk;
+
+        g_spyResolved = true;
+
+        if (!Resolve())
+            return false;
+
+        if (!Matches(kExecutorTarget) || !Matches(kGateTarget))
+        {
+            Log("spy targets unavailable");
+            return false;
+        }
+
+        g_spy.executor = Rebase(kExecutor);
+        g_spy.gate     = Rebase(kGate);
+        g_spyOk        = true;
+        return true;
+    }
+
     const LuaApi& Lua()
     {
         return g_lua;
@@ -179,5 +217,10 @@ namespace game
     const BuddyApi& Buddy()
     {
         return g_buddy;
+    }
+
+    const SpyApi& Spy()
+    {
+        return g_spy;
     }
 }
