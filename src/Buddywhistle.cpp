@@ -4,6 +4,7 @@
 #include "BuddyWhistle.h"
 #include "GameAddresses.h"
 #include "Log.h"
+#include "Spy.h"
 
 namespace
 {
@@ -73,6 +74,8 @@ namespace buddy
 
         alignas(16) const float position[4] = { x, y, z, 0.0f };
 
+        spy::OwnCallScope ownCall;
+
         api.setCallPoint(manager, position, rotationRadians);
 
         const std::uint8_t result = api.callWrapper(
@@ -123,6 +126,8 @@ namespace buddy
 
         if (trigger && !ControllerReady())
             return false;
+
+        spy::OwnCallScope ownCall;
 
         api.horseCommand(
             nullptr,
