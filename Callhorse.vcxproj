@@ -75,15 +75,19 @@
   <ItemGroup>
     <ClInclude Include="src\BuddyWhistle.h" />
     <ClInclude Include="src\GameAddresses.h" />
+    <ClInclude Include="src\InlineHook.h" />
     <ClInclude Include="src\Log.h" />
     <ClInclude Include="src\LuaBridge.h" />
+    <ClInclude Include="src\Spy.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\BuddyWhistle.cpp" />
     <ClCompile Include="src\dllmain.cpp" />
     <ClCompile Include="src\GameAddresses.cpp" />
+    <ClCompile Include="src\InlineHook.cpp" />
     <ClCompile Include="src\Log.cpp" />
     <ClCompile Include="src\LuaBridge.cpp" />
+    <ClCompile Include="src\Spy.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
