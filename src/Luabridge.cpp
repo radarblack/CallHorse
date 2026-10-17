@@ -2,6 +2,7 @@
 #include "GameAddresses.h"
 #include "Log.h"
 #include "LuaBridge.h"
+#include "Spy.h"
 
 namespace
 {
@@ -101,6 +102,34 @@ namespace
         return 1;
     }
 
+    int EnableSpyBinding(void* L)
+    {
+        const game::LuaApi& lua = game::Lua();
+
+        const bool enabled = lua.type(L, 1) <= kLuaTypeNil || lua.toboolean(L, 1) != 0;
+        lua.pushboolean(L, spy::Enable(enabled) ? 1 : 0);
+        return 1;
+    }
+
+    int GetLastGameHorseCommandBinding(void* L)
+    {
+        const game::LuaApi& lua = game::Lua();
+
+        std::uint32_t sequence = 0;
+        std::uint8_t command[4] = {};
+        if (!spy::GetLastGameHorseCommand(sequence, command))
+        {
+            lua.pushboolean(L, 0);
+            return 1;
+        }
+
+        lua.pushnumber(L, static_cast<double>(sequence));
+        for (int index = 0; index < 4; ++index)
+            lua.pushnumber(L, static_cast<double>(command[index]));
+
+        return 5;
+    }
+
     int IsAvailableBinding(void* L)
     {
         game::Lua().pushboolean(L, buddy::Available() ? 1 : 0);
@@ -113,6 +142,8 @@ namespace
         { "IsAvailable", IsAvailableBinding },
         { "GetHorseCommandState", GetHorseCommandStateBinding },
         { "SetHorseCommandState", SetHorseCommandStateBinding },
+        { "EnableSpy", EnableSpyBinding },
+        { "GetLastGameHorseCommand", GetLastGameHorseCommandBinding },
         { nullptr,       nullptr }
     };
 }
