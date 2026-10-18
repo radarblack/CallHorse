@@ -1,5 +1,6 @@
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 
 #include "BuddyWhistle.h"
 #include "GameAddresses.h"
@@ -15,6 +16,9 @@ namespace
     constexpr int kLimit62 = 6;
     constexpr int kLimit63 = 7;
     constexpr int kLimit64 = 4;
+
+    constexpr std::size_t kCommandBufferSize = 0x80;
+    constexpr int         kPendingResult     = 0x7FFFFFFF;
 
     bool ControllerReady()
     {
@@ -138,6 +142,49 @@ namespace buddy
             static_cast<std::uint8_t>(trigger ? 1 : 0));
 
         Log("horse command %d,%d,%d,%d trigger=%d", e61, e62, e63, e64, trigger ? 1 : 0);
+        return true;
+    }
+
+    bool RunBuddyCommand(const BuddyCommand& command, int& result)
+    {
+        if (command.kind > 5)
+            return false;
+
+        if (!game::ResolveSpy())
+            return false;
+
+        const game::BuddyApi& api = game::Buddy();
+
+        void* manager = *api.managerSlot;
+        if (!manager)
+            return false;
+
+        void* controller = *reinterpret_cast<void**>(static_cast<std::uint8_t*>(manager) + kControllerOffset);
+        if (!controller)
+            return false;
+
+        alignas(16) std::uint8_t data[kCommandBufferSize] = {};
+
+        const float vector[4] = { command.x, command.y, command.z, 0.0f };
+        std::memcpy(data, vector, sizeof(vector));
+        std::memcpy(data + 0x10, &command.rotation, sizeof(float));
+
+        data[0x14] = command.type;
+        data[0x18] = command.a18;
+        data[0x1C] = command.a1c;
+        data[0x20] = command.a20;
+        data[0x24] = command.a24;
+        data[0x64] = command.f64;
+
+        using DispatcherFn = int* (*)(void*, int*, std::uint32_t, const std::uint8_t*);
+        const DispatcherFn dispatcher = reinterpret_cast<DispatcherFn>(game::Spy().dispatcher);
+
+        int value = kPendingResult;
+
+        spy::OwnCallScope ownCall;
+        dispatcher(nullptr, &value, command.kind, data);
+
+        result = value;
         return true;
     }
 }
