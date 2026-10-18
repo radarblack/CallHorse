@@ -28,6 +28,7 @@ namespace
     constexpr std::uintptr_t kHorseCommand     = 0x140A4ED70ull;
     constexpr std::uintptr_t kExecutor         = 0x140A4E340ull;
     constexpr std::uintptr_t kGate             = 0x140A44740ull;
+    constexpr std::uintptr_t kDispatcher       = 0x1405D2040ull;
 
     constexpr std::uint8_t kLuaIsNumberBytes[]     = { 0x48, 0x83, 0xEC, 0x38, 0xE8, 0x87, 0x22, 0x00, 0x00, 0x83, 0x78, 0x08, 0x03, 0x74, 0x17, 0x48 };
     constexpr std::uint8_t kLuaToNumberBytes[]     = { 0x48, 0x83, 0xEC, 0x38, 0xE8, 0xA7, 0x14, 0x00, 0x00, 0x83, 0x78, 0x08, 0x03, 0x74, 0x1A, 0x48 };
@@ -44,6 +45,8 @@ namespace
 
     constexpr std::uint8_t kExecutorBytes[]        = { 0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x30, 0x48 };
     constexpr std::uint8_t kGateBytes[]            = { 0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x6C, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18, 0x48 };
+
+    constexpr std::uint8_t kDispatcherBytes[]      = { 0x48, 0x89, 0x5C, 0x24, 0x08, 0x55, 0x56, 0x57, 0x48, 0x83, 0xEC, 0x40, 0x48, 0x8B, 0x05, 0xDD };
 
     struct Target
     {
@@ -70,6 +73,7 @@ namespace
 
     constexpr Target kExecutorTarget = { "executor", kExecutor, kExecutorBytes, sizeof(kExecutorBytes) };
     constexpr Target kGateTarget     = { "gate",     kGate,     kGateBytes,     sizeof(kGateBytes) };
+    constexpr Target kDispatcherTarget = { "dispatcher", kDispatcher, kDispatcherBytes, sizeof(kDispatcherBytes) };
 
     game::LuaApi   g_lua;
     game::BuddyApi g_buddy;
@@ -197,14 +201,15 @@ namespace game
         if (!Resolve())
             return false;
 
-        if (!Matches(kExecutorTarget) || !Matches(kGateTarget))
+        if (!Matches(kExecutorTarget) || !Matches(kGateTarget) || !Matches(kDispatcherTarget))
         {
             Log("spy targets unavailable");
             return false;
         }
 
-        g_spy.executor = Rebase(kExecutor);
-        g_spy.gate     = Rebase(kGate);
+        g_spy.executor   = Rebase(kExecutor);
+        g_spy.gate       = Rebase(kGate);
+        g_spy.dispatcher = Rebase(kDispatcher);
         g_spyOk        = true;
         return true;
     }
