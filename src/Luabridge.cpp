@@ -130,6 +130,81 @@ namespace
         return 5;
     }
 
+    int GetLastGameBuddyCommandBinding(void* L)
+    {
+        const game::LuaApi& lua = game::Lua();
+
+        spy::BuddyCommandRecord record;
+        if (!spy::GetLastGameBuddyCommand(record))
+        {
+            lua.pushboolean(L, 0);
+            return 1;
+        }
+
+        lua.pushnumber(L, static_cast<double>(record.sequence));
+        lua.pushnumber(L, static_cast<double>(record.kind));
+        lua.pushnumber(L, static_cast<double>(record.type));
+        lua.pushnumber(L, static_cast<double>(record.x));
+        lua.pushnumber(L, static_cast<double>(record.y));
+        lua.pushnumber(L, static_cast<double>(record.z));
+        lua.pushnumber(L, static_cast<double>(record.rotation));
+        lua.pushnumber(L, static_cast<double>(record.a18));
+        lua.pushnumber(L, static_cast<double>(record.a1c));
+        lua.pushnumber(L, static_cast<double>(record.a20));
+        lua.pushnumber(L, static_cast<double>(record.a24));
+        lua.pushnumber(L, static_cast<double>(record.f64));
+        lua.pushnumber(L, static_cast<double>(record.result));
+        return 13;
+    }
+
+    int RunBuddyCommandBinding(void* L)
+    {
+        const game::LuaApi& lua = game::Lua();
+
+        double values[11] = {};
+        for (int index = 0; index < 11; ++index)
+        {
+            if (!lua.isnumber(L, index + 1))
+            {
+                lua.pushboolean(L, 0);
+                return 1;
+            }
+
+            values[index] = lua.tonumber(L, index + 1);
+        }
+
+        if (!(values[0] >= 0.0 && values[0] <= 5.0) || !InRange(values[1]) ||
+            !InRange(values[6]) || !InRange(values[7]) || !InRange(values[8]) ||
+            !InRange(values[9]) || !InRange(values[10]))
+        {
+            lua.pushboolean(L, 0);
+            return 1;
+        }
+
+        buddy::BuddyCommand command;
+        command.kind     = static_cast<std::uint32_t>(values[0]);
+        command.type     = static_cast<std::uint8_t>(values[1]);
+        command.x        = static_cast<float>(values[2]);
+        command.y        = static_cast<float>(values[3]);
+        command.z        = static_cast<float>(values[4]);
+        command.rotation = static_cast<float>(values[5]);
+        command.a18      = static_cast<std::uint8_t>(values[6]);
+        command.a1c      = static_cast<std::uint8_t>(values[7]);
+        command.a20      = static_cast<std::uint8_t>(values[8]);
+        command.a24      = static_cast<std::uint8_t>(values[9]);
+        command.f64      = static_cast<std::uint8_t>(values[10]);
+
+        int result = 0;
+        if (!buddy::RunBuddyCommand(command, result))
+        {
+            lua.pushboolean(L, 0);
+            return 1;
+        }
+
+        lua.pushnumber(L, static_cast<double>(result));
+        return 1;
+    }
+
     int IsAvailableBinding(void* L)
     {
         game::Lua().pushboolean(L, buddy::Available() ? 1 : 0);
@@ -144,6 +219,8 @@ namespace
         { "SetHorseCommandState", SetHorseCommandStateBinding },
         { "EnableSpy", EnableSpyBinding },
         { "GetLastGameHorseCommand", GetLastGameHorseCommandBinding },
+        { "GetLastGameBuddyCommand", GetLastGameBuddyCommandBinding },
+        { "RunBuddyCommand", RunBuddyCommandBinding },
         { nullptr,       nullptr }
     };
 }
