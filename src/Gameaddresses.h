@@ -28,8 +28,9 @@ namespace game
 
     struct SpyApi
     {
-        void* executor = nullptr;
-        void* gate     = nullptr;
+        void* executor   = nullptr;
+        void* gate       = nullptr;
+        void* dispatcher = nullptr;
     };
 
     bool Resolve();
