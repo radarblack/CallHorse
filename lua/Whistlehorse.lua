@@ -7,6 +7,7 @@ this.presetCommand = nil
 this.learnedCommand = nil
 this.useSpy = true
 this.spyActive = false
+this.maxRetryFrames = 300
 
 local DLL_NAME = "CallHorse.dll"
 local ENTRY_POINT = "luaopen_CallHorse"
@@ -15,9 +16,12 @@ local LIBRARY_NAME = "CallHorseNative"
 local wasDown = false
 local lastState = nil
 local lastSequence = 0
+local lastBuddySequence = 0
 local learning = false
 local loadAttempted = false
 local statusShown = false
+local pending = nil
+local loggedResult = nil
 
 local function logQuiet(message)
   InfCore.Log("WhistleHorse: " .. message, false, true)
@@ -28,16 +32,23 @@ local function log(message)
   TppUiCommand.AnnounceLogView("Whistle: " .. message)
 end
 
+local function horseType()
+  return (BuddyType and BuddyType.HORSE) or 1
+end
+
 local function describe(state)
   return string.format("%d,%d,%d,%d", state[1], state[2], state[3], state[4])
 end
 
-local function sameState(a, b)
-  return a ~= nil and b ~= nil and a[1] == b[1] and a[2] == b[2] and a[3] == b[3] and a[4] == b[4]
+local function describeCommand(command)
+  return string.format(
+    "kind=%d type=%d bytes=%d,%d,%d,%d flag=%d",
+    command.kind, command.type, command.a18, command.a1c, command.a20, command.a24, command.f64
+  )
 end
 
-local function isZero(state)
-  return state[1] == 0 and state[2] == 0 and state[3] == 0 and state[4] == 0
+local function sameState(a, b)
+  return a ~= nil and b ~= nil and a[1] == b[1] and a[2] == b[2] and a[3] == b[3] and a[4] == b[4]
 end
 
 local function candidatePaths()
@@ -85,7 +96,7 @@ function this.LoadNative()
         elseif library.IsAvailable() ~= true then
           status = "DLL LOADED BUT GAME BUILD UNSUPPORTED, SEE CallHorse.log"
           logQuiet(status .. " (" .. path .. ")")
-        elseif library.GetHorseCommandState == nil or library.SetHorseCommandState == nil then
+        elseif library.RunBuddyCommand == nil or library.GetLastGameBuddyCommand == nil then
           status = "DLL IS OLD: UPDATE CallHorse.dll"
           logQuiet(status .. " (" .. path .. ")")
         else
@@ -106,7 +117,7 @@ end
 function this.StartSpy()
   this.spyActive = false
 
-  if not this.useSpy or this.native.EnableSpy == nil or this.native.GetLastGameHorseCommand == nil then
+  if not this.useSpy or this.native.EnableSpy == nil then
     logQuiet("spy not used")
     return
   end
@@ -114,35 +125,73 @@ function this.StartSpy()
   local ok, enabled = pcall(this.native.EnableSpy, true)
   if ok and enabled == true then
     this.spyActive = true
-    logQuiet("spy active: game horse commands are being captured")
+    logQuiet("spy active: game buddy commands are being captured")
   else
-    logQuiet("spy could not start (" .. tostring(enabled) .. "), falling back to state polling")
+    logQuiet("spy could not start (" .. tostring(enabled) .. ")")
   end
 end
 
-function this.PollGameCommand()
-  local ok, sequence, e61, e62, e63, e64 = pcall(this.native.GetLastGameHorseCommand)
+function this.PollBuddyCommand()
+  local ok, sequence, kind, buddyType, x, y, z, rotation, a18, a1c, a20, a24, f64, result =
+    pcall(this.native.GetLastGameBuddyCommand)
+
   if not ok or type(sequence) ~= "number" then
     return nil
   end
 
-  return sequence, { e61, e62, e63, e64 }
+  return sequence, {
+    kind = kind,
+    type = buddyType,
+    x = x,
+    y = y,
+    z = z,
+    rotation = rotation,
+    a18 = a18,
+    a1c = a1c,
+    a20 = a20,
+    a24 = a24,
+    f64 = f64,
+    result = result,
+  }
 end
 
-function this.TrackGameCommand()
-  local sequence, command = this.PollGameCommand()
-  if sequence == nil or sequence == lastSequence then
+function this.TrackBuddyCommand()
+  local sequence, command = this.PollBuddyCommand()
+  if sequence == nil or sequence == lastBuddySequence then
     return
   end
 
-  lastSequence = sequence
-  logQuiet("game horse command #" .. sequence .. " " .. describe(command))
+  lastBuddySequence = sequence
+
+  logQuiet(string.format(
+    "game buddy command #%d %s pos=(%.1f,%.1f,%.1f) rot=%.1f result=%d | player=(%.1f,%.1f,%.1f) rotY=%.1f",
+    sequence,
+    describeCommand(command),
+    command.x, command.y, command.z, command.rotation, command.result,
+    vars.playerPosX, vars.playerPosY, vars.playerPosZ, vars.playerRotY
+  ))
+
+  if command.type ~= horseType() then
+    return
+  end
 
   if learning then
     learning = false
     this.learnedCommand = command
-    log("WHISTLE LEARNED " .. describe(command) .. " - PRESS LIGHT_SWITCH TO USE IT")
+    log("WHISTLE LEARNED " .. describeCommand(command) .. " - PRESS LIGHT_SWITCH TO USE IT")
+  else
+    log("GAME HORSE COMMAND " .. describeCommand(command))
   end
+end
+
+function this.TrackGameCommand()
+  local ok, sequence, e61, e62, e63, e64 = pcall(this.native.GetLastGameHorseCommand)
+  if not ok or type(sequence) ~= "number" or sequence == lastSequence then
+    return
+  end
+
+  lastSequence = sequence
+  logQuiet("game horse state command #" .. sequence .. " " .. describe({ e61, e62, e63, e64 }))
 end
 
 function this.ReadState()
@@ -156,36 +205,6 @@ function this.ReadState()
   end
 
   return { e61, e62, e63, e64 }
-end
-
-function this.ExecuteCommand(command)
-  local okReset, reset = pcall(this.native.SetHorseCommandState, 0, 0, 0, 0, false)
-  if not okReset or reset ~= true then
-    log("RESET FAILED: " .. tostring(reset))
-    return false
-  end
-
-  local ok, accepted = pcall(
-    this.native.SetHorseCommandState,
-    command[1],
-    command[2],
-    command[3],
-    command[4],
-    true
-  )
-
-  if not ok then
-    log("COMMAND ERROR: " .. tostring(accepted))
-    return false
-  end
-
-  if accepted ~= true then
-    log("COMMAND REFUSED (player or buddy manager not ready)")
-    return false
-  end
-
-  log("WHISTLE SENT " .. describe(command))
-  return true
 end
 
 function this.TrackState()
@@ -206,12 +225,64 @@ function this.TrackState()
 
   logQuiet("horse command state " .. describe(lastState) .. " -> " .. describe(state))
   lastState = state
+end
 
-  if learning and not this.spyActive and not isZero(state) then
-    learning = false
-    this.learnedCommand = state
-    log("WHISTLE LEARNED " .. describe(state) .. " - PRESS LIGHT_SWITCH TO USE IT")
+function this.StepRequest()
+  if pending == nil then
+    return
   end
+
+  local command = pending.command
+  pending.frames = pending.frames + 1
+
+  local ok, result = pcall(
+    this.native.RunBuddyCommand,
+    command.kind,
+    command.type,
+    vars.playerPosX,
+    vars.playerPosY,
+    vars.playerPosZ,
+    vars.playerRotY,
+    command.a18,
+    command.a1c,
+    command.a20,
+    command.a24,
+    command.f64
+  )
+
+  if not ok then
+    log("COMMAND ERROR: " .. tostring(result))
+    pending = nil
+    return
+  end
+
+  if result == false then
+    log("COMMAND REFUSED (buddy manager not ready or invalid command)")
+    pending = nil
+    return
+  end
+
+  if result ~= loggedResult then
+    loggedResult = result
+    logQuiet("run result " .. tostring(result) .. " at frame " .. pending.frames)
+  end
+
+  if result == 0 then
+    log("WHISTLE DONE AFTER " .. pending.frames .. " FRAMES")
+    pending = nil
+    return
+  end
+
+  if pending.frames >= this.maxRetryFrames then
+    log("WHISTLE GAVE UP, LAST RESULT " .. tostring(result))
+    pending = nil
+  end
+end
+
+function this.StartRequest(command)
+  pending = { command = command, frames = 0 }
+  loggedResult = nil
+  this.StepRequest()
 end
 
 function this.OnPress()
@@ -226,19 +297,22 @@ function this.OnPress()
   local command = this.presetCommand or this.learnedCommand
 
   if command == nil then
+    if not this.spyActive then
+      log("CANNOT LEARN WITHOUT THE SPY - SET this.presetCommand")
+      return false
+    end
+
     learning = true
-    lastState = this.ReadState()
-    if this.spyActive then
-      local sequence = this.PollGameCommand()
-      if sequence ~= nil then
-        lastSequence = sequence
-      end
+    local sequence = this.PollBuddyCommand()
+    if sequence ~= nil then
+      lastBuddySequence = sequence
     end
     log("LEARNING: HOLD Q, SELECT WHISTLE ONCE IN THE RADIAL MENU")
     return false
   end
 
-  return this.ExecuteCommand(command)
+  this.StartRequest(command)
+  return true
 end
 
 function this.Update()
@@ -254,15 +328,26 @@ function this.Update()
 
   if this.native ~= nil then
     if this.spyActive then
+      local okBuddy, buddyError = pcall(this.TrackBuddyCommand)
+      if not okBuddy then
+        logQuiet("TrackBuddyCommand error: " .. tostring(buddyError))
+      end
+
       local okGame, gameError = pcall(this.TrackGameCommand)
       if not okGame then
         logQuiet("TrackGameCommand error: " .. tostring(gameError))
       end
     end
 
-    local ok, trackError = pcall(this.TrackState)
-    if not ok then
-      logQuiet("TrackState error: " .. tostring(trackError))
+    local okState, stateError = pcall(this.TrackState)
+    if not okState then
+      logQuiet("TrackState error: " .. tostring(stateError))
+    end
+
+    local okStep, stepError = pcall(this.StepRequest)
+    if not okStep then
+      log("STEP ERROR: " .. tostring(stepError))
+      pending = nil
     end
   end
 
