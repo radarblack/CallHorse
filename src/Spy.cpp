@@ -32,6 +32,7 @@ namespace
     constexpr std::size_t kCommandDumpOffset = 0x10;
     constexpr std::size_t kCommandDumpLength = 0x18;
     constexpr std::size_t kCommandBytes      = 0x68;
+    constexpr std::size_t kRingSize          = 64;
 
     using HelperFn     = void (*)(void*, std::uint8_t, std::uint8_t, std::uint8_t, std::uint8_t, std::uint8_t);
     using WrapperFn    = std::uint8_t (*)(void*, std::uint8_t, std::uint8_t);
@@ -79,6 +80,7 @@ namespace
     LastHorseCommand g_lastHorse;
 
     spy::BuddyCommandRecord g_lastBuddy;
+    spy::BuddyCommandRecord g_ring[kRingSize];
     bool                    g_haveBuddy = false;
 
     unsigned long long Preferred(const void* address)
@@ -285,6 +287,7 @@ namespace
         }
 
         g_lastBuddy.result = result;
+        g_ring[g_lastBuddy.sequence % kRingSize] = g_lastBuddy;
     }
 
     int* DispatcherDetour(void* self, int* result, std::uint32_t kind, const std::uint8_t* command)
@@ -386,6 +389,22 @@ namespace spy
             return false;
 
         record = g_lastBuddy;
+        return true;
+    }
+
+    bool GetGameBuddyCommand(std::uint32_t sequence, BuddyCommandRecord& record)
+    {
+        if (!g_haveBuddy || sequence == 0 || sequence > g_lastBuddy.sequence ||
+            g_lastBuddy.sequence - sequence >= kRingSize)
+        {
+            return false;
+        }
+
+        const BuddyCommandRecord& stored = g_ring[sequence % kRingSize];
+        if (stored.sequence != sequence)
+            return false;
+
+        record = stored;
         return true;
     }
 
