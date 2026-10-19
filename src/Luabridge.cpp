@@ -130,16 +130,9 @@ namespace
         return 5;
     }
 
-    int GetLastGameBuddyCommandBinding(void* L)
+    int PushBuddyRecord(void* L, const spy::BuddyCommandRecord& record)
     {
         const game::LuaApi& lua = game::Lua();
-
-        spy::BuddyCommandRecord record;
-        if (!spy::GetLastGameBuddyCommand(record))
-        {
-            lua.pushboolean(L, 0);
-            return 1;
-        }
 
         lua.pushnumber(L, static_cast<double>(record.sequence));
         lua.pushnumber(L, static_cast<double>(record.kind));
@@ -155,6 +148,40 @@ namespace
         lua.pushnumber(L, static_cast<double>(record.f64));
         lua.pushnumber(L, static_cast<double>(record.result));
         return 13;
+    }
+
+    int GetLastGameBuddyCommandBinding(void* L)
+    {
+        spy::BuddyCommandRecord record;
+        if (!spy::GetLastGameBuddyCommand(record))
+        {
+            game::Lua().pushboolean(L, 0);
+            return 1;
+        }
+
+        return PushBuddyRecord(L, record);
+    }
+
+    int GetGameBuddyCommandBinding(void* L)
+    {
+        const game::LuaApi& lua = game::Lua();
+
+        if (!lua.isnumber(L, 1))
+        {
+            lua.pushboolean(L, 0);
+            return 1;
+        }
+
+        const double sequence = lua.tonumber(L, 1);
+        spy::BuddyCommandRecord record;
+        if (!(sequence >= 1.0 && sequence <= 4294967295.0) ||
+            !spy::GetGameBuddyCommand(static_cast<std::uint32_t>(sequence), record))
+        {
+            lua.pushboolean(L, 0);
+            return 1;
+        }
+
+        return PushBuddyRecord(L, record);
     }
 
     int RunBuddyCommandBinding(void* L)
@@ -220,6 +247,7 @@ namespace
         { "EnableSpy", EnableSpyBinding },
         { "GetLastGameHorseCommand", GetLastGameHorseCommandBinding },
         { "GetLastGameBuddyCommand", GetLastGameBuddyCommandBinding },
+        { "GetGameBuddyCommand", GetGameBuddyCommandBinding },
         { "RunBuddyCommand", RunBuddyCommandBinding },
         { nullptr,       nullptr }
     };
