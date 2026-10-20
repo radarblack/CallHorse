@@ -5,6 +5,9 @@ this.native = nil
 this.nativeStatus = "not loaded yet"
 this.presetCommand = nil
 this.learnedCommands = nil
+this.learnOnPress = false
+this.whistleCommand = { kind = 2, type = 1, a18 = 0, a1c = 0, a20 = 0, a24 = 0, f64 = 0 }
+this.stayBackCommand = { kind = 1, type = 1, a18 = 0, a1c = 0, a20 = 0, a24 = 0, f64 = 0 }
 this.useSpy = true
 this.spyActive = false
 this.usePlayerPose = false
@@ -385,11 +388,9 @@ function this.OnPress()
     return false
   end
 
-  local commands = presetList() or this.learnedCommands
-
-  if commands == nil then
+  if this.learnOnPress and presetList() == nil and this.learnedCommands == nil then
     if not this.spyActive then
-      log("CANNOT LEARN WITHOUT THE SPY - SET this.presetCommand")
+      log("CANNOT LEARN WITHOUT THE SPY")
       return false
     end
 
@@ -403,7 +404,16 @@ function this.OnPress()
     return false
   end
 
-  this.StartRequest(commands)
+  this.StartRequest(presetList() or this.learnedCommands or { this.whistleCommand })
+  return true
+end
+
+function this.StayBack()
+  if not this.LoadNative() then
+    return false
+  end
+
+  this.StartRequest({ this.stayBackCommand })
   return true
 end
 
