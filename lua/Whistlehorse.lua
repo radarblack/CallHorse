@@ -4,15 +4,14 @@ this.name = "WhistleHorse"
 this.native = nil
 this.nativeStatus = "not loaded yet"
 this.presetCommand = nil
-this.learnedCommands = nil
-this.learnOnPress = false
-this.whistleCommand = { kind = 2, type = 1, a18 = 0, a1c = 0, a20 = 0, a24 = 0, f64 = 0 }
+this.learnedChain = nil
+this.learnOnPress = true
 this.stayBackCommand = { kind = 1, type = 1, a18 = 0, a1c = 0, a20 = 0, a24 = 0, f64 = 0 }
 this.useSpy = true
 this.spyActive = false
 this.usePlayerPose = false
 this.maxRetryFrames = 300
-this.captureQuietFrames = 30
+this.captureQuietFrames = 600
 
 local DLL_NAME = "CallHorse.dll"
 local ENTRY_POINT = "luaopen_CallHorse"
@@ -28,7 +27,7 @@ local capture = nil
 local loadAttempted = false
 local statusShown = false
 local pending = nil
-local loggedResult = nil
+local loggedResults = {}
 
 local function logQuiet(message)
   InfCore.Log("WhistleHorse: " .. message, false, true)
@@ -37,10 +36,6 @@ end
 local function log(message)
   logQuiet(message)
   TppUiCommand.AnnounceLogView("Whistle: " .. message)
-end
-
-local function horseType()
-  return (BuddyType and BuddyType.HORSE) or 1
 end
 
 local function describe(state)
@@ -193,15 +188,9 @@ function this.OnBuddyCommand(sequence, command)
     vars.playerPosX, vars.playerPosY, vars.playerPosZ, vars.playerRotY
   ))
 
-  if command.type ~= horseType() then
-    return
-  end
-
   if capture ~= nil then
-    capture.commands[#capture.commands + 1] = copyCommand(command)
+    capture.items[#capture.items + 1] = { command = copyCommand(command), sequence = sequence, frame = frame }
     capture.lastFrame = frame
-  else
-    log("GAME HORSE COMMAND " .. describeCommand(command))
   end
 end
 
@@ -226,26 +215,46 @@ function this.TrackBuddyCommand()
   lastBuddySequence = latest
 end
 
-function this.CheckCapture()
-  if capture == nil or #capture.commands == 0 then
-    return
+function this.FinishCapture()
+  if capture == nil or #capture.items == 0 then
+    return false
   end
 
-  if frame - capture.lastFrame < this.captureQuietFrames then
-    return
-  end
-
-  local commands = capture.commands
+  local items = capture.items
   capture = nil
-  this.learnedCommands = commands
 
+  local startFrame = items[1].frame
+  local chain = {}
   local parts = {}
-  for index, command in ipairs(commands) do
-    parts[index] = describeCommand(command)
+
+  for index, item in ipairs(items) do
+    local _, latest = this.PollCommand(item.sequence)
+    local finalResult = latest ~= nil and latest.result or -1
+
+    chain[index] = {
+      command = item.command,
+      offset = item.frame - startFrame,
+      retry = finalResult == 0,
+      waitPrevious = false,
+    }
+
+    parts[index] = string.format("+%df %s final=%d", item.frame - startFrame, describeCommand(item.command), finalResult)
   end
 
-  logQuiet("learned: " .. table.concat(parts, " | "))
-  log("WHISTLE LEARNED " .. #commands .. " COMMAND(S) - PRESS LIGHT_SWITCH TO USE IT")
+  this.learnedChain = chain
+  logQuiet("learned chain: " .. table.concat(parts, " | "))
+  log("WHISTLE LEARNED " .. #chain .. " COMMAND(S) OVER " .. (items[#items].frame - startFrame) .. " FRAMES - PRESS LIGHT_SWITCH TO USE IT")
+  return true
+end
+
+function this.CheckCapture()
+  if capture == nil or #capture.items == 0 then
+    return
+  end
+
+  if frame - capture.lastFrame >= this.captureQuietFrames then
+    this.FinishCapture()
+  end
 end
 
 function this.TrackGameCommand()
@@ -314,69 +323,132 @@ function this.RunOne(command)
   )
 end
 
+local function allDone(request)
+  for index = 1, #request.entries do
+    if request.state[index] ~= "done" then
+      return false
+    end
+  end
+
+  return true
+end
+
+local function runEntry(index, entry)
+  pending.ran[index] = frame
+  pending.total = pending.total + 1
+
+  local ok, result = this.RunOne(entry.command)
+
+  if not ok then
+    log("COMMAND ERROR: " .. tostring(result))
+    pending = nil
+    return false
+  end
+
+  if result == false then
+    log("COMMAND REFUSED (buddy manager not ready or invalid command)")
+    pending = nil
+    return false
+  end
+
+  if loggedResults[index] ~= result then
+    loggedResults[index] = result
+    logQuiet(string.format("run %d/%d %s result %s at step %d", index, #pending.entries, describeCommand(entry.command), tostring(result), pending.total))
+  end
+
+  if result == 0 then
+    pending.state[index] = "done"
+    return true
+  end
+
+  if not entry.retry then
+    pending.state[index] = "done"
+    return true
+  end
+
+  pending.frames[index] = pending.frames[index] + 1
+
+  if pending.frames[index] >= this.maxRetryFrames then
+    log("WHISTLE GAVE UP ON COMMAND " .. index .. ", LAST RESULT " .. tostring(result))
+    pending = nil
+    return false
+  end
+
+  return false
+end
+
 function this.StepRequest()
-  while pending ~= nil do
-    local command = pending.commands[pending.index]
-    pending.total = pending.total + 1
+  if pending == nil then
+    return
+  end
 
-    local ok, result = this.RunOne(command)
+  local progress = true
+  local passes = 0
 
-    if not ok then
-      log("COMMAND ERROR: " .. tostring(result))
-      pending = nil
-      return
-    end
+  while progress and pending ~= nil and passes <= #pending.entries do
+    progress = false
+    passes = passes + 1
 
-    if result == false then
-      log("COMMAND REFUSED (buddy manager not ready or invalid command)")
-      pending = nil
-      return
-    end
+    local elapsed = frame - pending.startFrame
 
-    if result ~= loggedResult then
-      loggedResult = result
-      logQuiet(string.format("run command %d/%d result %s at step %d", pending.index, #pending.commands, tostring(result), pending.total))
-    end
-
-    if result == 0 then
-      pending.index = pending.index + 1
-      pending.frames = 0
-
-      if pending.index > #pending.commands then
-        log("WHISTLE DONE AFTER " .. pending.total .. " STEPS")
-        pending = nil
+    for index, entry in ipairs(pending.entries) do
+      if pending == nil then
         return
       end
-    else
-      pending.frames = pending.frames + 1
 
-      if pending.frames >= this.maxRetryFrames then
-        log("WHISTLE GAVE UP, LAST RESULT " .. tostring(result))
-        pending = nil
+      if pending.state[index] == nil then
+        local previousDone = index == 1 or pending.state[index - 1] == "done"
+        if elapsed >= entry.offset and (not entry.waitPrevious or previousDone) then
+          pending.state[index] = "active"
+          pending.frames[index] = 0
+        end
       end
 
+      if pending.state[index] == "active" and pending.ran[index] ~= frame then
+        if runEntry(index, entry) then
+          progress = true
+        end
+      end
+    end
+
+    if pending ~= nil and allDone(pending) then
+      log("WHISTLE DONE AFTER " .. pending.total .. " STEPS")
+      pending = nil
       return
     end
   end
 end
 
-function this.StartRequest(commands)
-  pending = { commands = commands, index = 1, frames = 0, total = 0 }
-  loggedResult = nil
+function this.StartRequest(entries)
+  pending = {
+    entries = entries,
+    startFrame = frame,
+    state = {},
+    frames = {},
+    ran = {},
+    total = 0,
+  }
+  loggedResults = {}
   this.StepRequest()
 end
 
-local function presetList()
+local function presetEntries()
   local preset = this.presetCommand
   if preset == nil then
     return nil
   end
 
+  local list = preset
   if preset.kind ~= nil then
-    return { preset }
+    list = { preset }
   end
 
-  return preset
+  local entries = {}
+  for index, command in ipairs(list) do
+    entries[index] = { command = command, offset = 0, retry = true, waitPrevious = true }
+  end
+
+  return entries
 end
 
 function this.OnPress()
@@ -388,9 +460,20 @@ function this.OnPress()
     return false
   end
 
-  if this.learnOnPress and presetList() == nil and this.learnedCommands == nil then
-    if not this.spyActive then
-      log("CANNOT LEARN WITHOUT THE SPY")
+  if capture ~= nil then
+    if #capture.items > 0 then
+      this.FinishCapture()
+    else
+      log("STILL LEARNING: SELECT WHISTLE IN THE RADIAL MENU FIRST")
+    end
+    return false
+  end
+
+  local entries = presetEntries() or this.learnedChain
+
+  if entries == nil then
+    if not this.learnOnPress or not this.spyActive then
+      log("NO WHISTLE COMMAND: SET this.presetCommand")
       return false
     end
 
@@ -399,12 +482,12 @@ function this.OnPress()
       lastBuddySequence = latest
     end
 
-    capture = { commands = {}, lastFrame = frame }
-    log("LEARNING: HOLD Q, SELECT WHISTLE ONCE IN THE RADIAL MENU")
+    capture = { items = {}, lastFrame = frame }
+    log("LEARNING: HOLD Q, SELECT WHISTLE ONCE, THEN PRESS LIGHT_SWITCH AGAIN")
     return false
   end
 
-  this.StartRequest(presetList() or this.learnedCommands or { this.whistleCommand })
+  this.StartRequest(entries)
   return true
 end
 
@@ -413,7 +496,7 @@ function this.StayBack()
     return false
   end
 
-  this.StartRequest({ this.stayBackCommand })
+  this.StartRequest({ { command = this.stayBackCommand, offset = 0, retry = true, waitPrevious = true } })
   return true
 end
 
