@@ -29,8 +29,8 @@ namespace
     constexpr std::size_t kStolenGate       = 15;
     constexpr std::size_t kDispatcherRipOffset = 12;
 
-    constexpr std::size_t kCommandDumpOffset = 0x10;
-    constexpr std::size_t kCommandDumpLength = 0x18;
+    constexpr std::size_t kCommandDumpOffset = 0x14;
+    constexpr std::size_t kCommandDumpLength = 0x14;
     constexpr std::size_t kCommandBytes      = 0x68;
     constexpr std::size_t kRingSize          = 64;
 
@@ -189,7 +189,7 @@ namespace
             char key[320];
             char line[480];
 
-            std::snprintf(key, sizeof(key), "type=%u command[+0x10..+0x27]=%s source=%s",
+            std::snprintf(key, sizeof(key), "type=%u command[+0x14..+0x27]=%s source=%s",
                 static_cast<unsigned>(buddyType), dump, Source());
 
             std::snprintf(line, sizeof(line), "spy: executor %s caller=0x%llX", key, Preferred(caller));
